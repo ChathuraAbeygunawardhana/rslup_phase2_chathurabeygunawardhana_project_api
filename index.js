@@ -2,29 +2,33 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
 const sendGrid = require('@sendgrid/mail');
+const mongoose = require('mongoose');
 const app = express();
 const port = 3000;
 
-// Middleware
 app.use(bodyParser.json());
+
+// MongoDB connection
+mongoose.connect('mongodb://localhost:27017/airline', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+const userSchema = new mongoose.Schema({
+  username: String,
+  password: String,
+  name: String,
+});
+
+const User = mongoose.model('User', userSchema);
+
+// Secret key for JWT
+const secretKey = 'the_secret_key';
 
 // Dummy data
 const users = [
   { id: 1, username: 'admin', password: 'password', name: 'Admin User' },
 ];
-
-// Secret key for JWT
-const secretKey = 'the_secret_key';
-
-// Forgot Password Endpoint=================================
-app.post('/forgot-password', (req, res) => {
-  const { email } = req.body;
-  const resetLink = 'dummy_link';
-  sendEmail(email, 'Reset your password', resetLink);
-  res.json({
-    message: 'A password reset link has been sent to your email account.',
-  });
-});
 
 // Send Email Function
 async function sendEmail(email, subject, body) {
@@ -55,45 +59,91 @@ app.use((req, res, next) => {
 });
 
 // User CRUD Endpoints
-app.get('/users', (req, res) => {
-  res.json(users);
-});
-
-app.get('/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const user = users.find((u) => u.id === userId);
-  if (user) {
-    res.json(user);
-  } else {
-    res.status(404).json({ error: 'User not found' });
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// Protected User CRUD Endpoints
-app.post('/users', (req, res) => {
-  console.log('creating a new user');
+app.get('/users/:id', async (req, res) => {
+  const userId = req.params.id;
+
+  try {
+    const user = await User.findById(userId);
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).json({ error: 'User not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
-app.put('/users/:id', (req, res) => {
-  console.log('updating a user');
+app.post('/users', async (req, res) => {
+  const { username, password, name } = req.body;
+
+  try {
+    const newUser = new User({ username, password, name });
+    await newUser.save();
+    res.json(newUser);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
-app.delete('/users/:id', (req, res) => {
-  console.log('deleting a user');
+app.put('/users/:id', async (req, res) => {
+  const userId = req.params.id;
+  const { username, password, name } = req.body;
+
+  try {
+    const user = await User.findByIdAndUpdate(userId, {
+      username,
+      password,
+      name,
+    });
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).json({ error: 'User not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+app.delete('/users/:id', async (req, res) => {
+  const userId = req.params.id;
+
+  try {
+    const user = await User.findByIdAndDelete(userId);
+    if (user) {
+      res.json({ message: 'User deleted successfully' });
+    } else {
+      res.status(404).json({ error: 'User not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // Login Endpoint
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = users.find(
-    (u) => u.username === username && u.password === password
-  );
 
-  if (user) {
-    const token = jwt.sign({ username: user.username }, secretKey);
-    res.json({ username: user.username, name: user.name, token });
-  } else {
-    res.status(401).json({ error: 'Invalid credentials.' });
+  try {
+    const user = await User.findOne({ username, password });
+    if (user) {
+      const token = jwt.sign({ username: user.username }, secretKey);
+      res.json({ username: user.username, name: user.name, token });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials.' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
